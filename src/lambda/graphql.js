@@ -1,6 +1,6 @@
-const serverlessHttp = require("serverless-http");
+const serverlessHttp = require('serverless-http');
 
-const app = require("./index.js");
+const app = require('./bundle/index.js');
 
 module.exports.handler = serverlessHttp(app, {
   /**
@@ -13,5 +13,5 @@ module.exports.handler = serverlessHttp(app, {
   request(req, event, context) {
     req.event = event;
     req.context = context;
-  }
+  },
 });
