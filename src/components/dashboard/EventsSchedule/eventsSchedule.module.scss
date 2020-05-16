@@ -1,0 +1,63 @@
+@import '../../../styles/variables.module';
+@import '../../../styles/utilities.module';
+@import '../../../styles/mixins.module';
+
+.dashboard-heading {
+  @extend %dashboard-heading;
+}
+
+.events-schedule {
+  @include clearfix;
+  line-height: 1;
+  margin-bottom: $space / 2;
+
+  @include breakpoint($bp-md) {
+    margin-bottom: $space;
+  }
+
+  @include breakpoint($bp-lg) {
+    margin-bottom: 0;
+  }
+
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+
+    @include breakpoint($bp-md) {
+      padding: 0 0 10px;
+    }
+  }
+
+  li {
+    margin: 0 0 10px;
+    padding: 0;
+    display: flex;
+
+    & > a {
+      margin-left: 10px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+  }
+
+  & > a {
+    float: right;
+  }
+}
+
+.hr {
+  height: 2px;
+  margin: 0 0 5px;
+  border: none;
+  background: $grey-lighter;
+
+  @include breakpoint($bp-md) {
+    margin: 0 0 10px;
+  }
+}
+
+.nothing-scheduled {
+  @extend %nothing-scheduled;
+}

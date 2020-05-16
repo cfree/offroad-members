@@ -1,0 +1,30 @@
+@import '../../../styles/utilities.module';
+
+.form {
+  @extend %form;
+}
+
+.form-field-wrapper {
+  @extend %form-field-wrapper;
+}
+
+.profile-form-label {
+  @extend %form-label;
+}
+
+.profile-radio-field {
+  display: flex;
+}
+
+.profile-radio-label {
+  @extend %label-radio;
+  line-height: 1;
+}
+
+.profile-form-field {
+  @extend %form-field;
+}
+
+.form-footer {
+  @extend %form-footer;
+}
