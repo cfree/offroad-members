@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "start": "react-scripts start",
-    "start:lambda": "netlify-lambda serve src/lambda",
+    "start:server": "node ./src/lambda/bundle/index.js",
+    "start:lambda": "netlify-lambda serve src/lambda --config ./webpack.functions.js",
     "build": "run-p build:**",
     "build:app": "react-scripts build",
     "build:lambda": "netlify-lambda build src/lambda",
@@ -49,6 +50,7 @@
     "graphql-tag": "^2.10.3",
     "html-react-parser": "^0.10.3",
     "jsonwebtoken": "^8.5.1",
+    "knex": "^0.21.1",
     "lodash": "^4.17.15",
     "node-fetch": "^2.6.0",
     "node-sass": "^4.13.1",

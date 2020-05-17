@@ -1,6 +1,11 @@
+require('dotenv').config({ path: '.env' });
+
 const serverlessHttp = require('serverless-http');
 
-const app = require('./bundle/index.js');
+const { app } = require('./bundle/app');
+const { server } = require('./bundle/server');
+
+server.applyMiddleware({ app, cors: false });
 
 module.exports.handler = serverlessHttp(app, {
   /**

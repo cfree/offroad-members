@@ -1,16 +1,20 @@
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const { randomBytes } = require("crypto");
-const { promisify } = require("util");
-const fetch = require("node-fetch");
-const cloudinary = require("cloudinary").v2;
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { randomBytes } = require('crypto');
+const { promisify } = require('util');
+const fetch = require('node-fetch');
+const cloudinary = require('cloudinary').v2;
+const format = require('date-fns/format');
+
+const db = require('../db');
+const { registrationsToDb } = require('../adapters/registrations');
 
 const promisifiedRandomBytes = promisify(randomBytes);
 
 cloudinary.config({
   cloud_name: process.env.CLOUNDINARY_NAME,
   api_key: process.env.CLOUDINARY_KEY,
-  api_secret: process.env.CLOUDINARY_SECRET
+  api_secret: process.env.CLOUDINARY_SECRET,
 });
 
 const promisifiedUpload = promisify(cloudinary.uploader.unsigned_upload);
@@ -18,19 +22,20 @@ const promisifiedDestroy = promisify(cloudinary.uploader.destroy);
 
 const HASH_SECRET = process.env.HASH_SECRET;
 const JWT_SECRET = process.env.JWT_SECRET;
-const { sendTransactionalEmail } = require("../mail");
+const { sendTransactionalEmail } = require('../mail');
 const {
   yearInMs,
   resetTokenTimeoutInMs,
+  timestampFormat,
   hasRole,
   hasAccountStatus,
   hasAccountType,
   isSelf,
-  getUploadLocation
-} = require("../utils");
-const { roles, emailGroups } = require("../config");
+  getUploadLocation,
+} = require('../utils');
+const { roles, emailGroups } = require('../config');
 
-const getHash = async pw => {
+const getHash = async (pw) => {
   const salt = await bcrypt.hash(HASH_SECRET, 10);
   return bcrypt.hash(pw, salt);
 };
@@ -38,8 +43,8 @@ const getHash = async pw => {
 const tokenSettings = {
   httpOnly: true,
   maxAge: yearInMs,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: process.env.NODE_ENV === "production" ? "Lax" : "None"
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: process.env.NODE_ENV === 'production' ? 'Lax' : 'None',
 };
 
 const Mutations = {
@@ -51,45 +56,59 @@ const Mutations = {
 
     // VALIDATION
     if (!email) {
-      throw new Error("Email is required");
+      throw new Error('Email is required');
     }
 
     if (lowercaseEmail !== lowercaseConfirmEmail) {
-      throw new Error("Emails do not match");
+      throw new Error('Emails do not match');
     }
 
     // Create registration in database
-    const resetToken = (await promisifiedRandomBytes(20)).toString("hex");
+    const token = (await promisifiedRandomBytes(20)).toString('hex');
 
-    await ctx.db.mutation.createRegistration(
-      {
-        data: {
-          firstName,
-          lastName,
-          email: lowercaseEmail,
-          source,
-          token: resetToken,
-          tokenExpiry: Date.now() + resetTokenTimeoutInMs
-        }
-      },
-      info
-    );
+    await db
+      .insert({
+        first_name: firstName,
+        last_name: lastName,
+        email: lowercaseEmail,
+        source,
+        token,
+        token_expiry: format(
+          Date.now() + resetTokenTimeoutInMs,
+          timestampFormat,
+        ),
+      })
+      .into('registrations');
+
+    // await ctx.db.mutation.createRegistration(
+    //   {
+    //     data: {
+    //       firstName,
+    //       lastName,
+    //       email: lowercaseEmail,
+    //       source,
+    //       token: resetToken,
+    //       tokenExpiry: Date.now() + resetTokenTimeoutInMs,
+    //     },
+    //   },
+    //   info,
+    // );
 
     let emailDetails;
 
     switch (source) {
-      case "website": // User initiated
+      case 'website': // User initiated
         emailDetails = {
           to: lowercaseEmail,
-          from: "no-reply@4-playersofcolorado.org",
-          subject: "Your 4-Players Account Registration",
+          from: 'no-reply@4-playersofcolorado.org',
+          subject: 'Your 4-Players Account Registration',
           text: `
             ${firstName},
     
             Thanks for opting in!
     
             Visit this URL to create your profile:
-            ${process.env.FRONTEND_URL}/signup?token=${resetToken}
+            ${process.env.FRONTEND_URL}/signup?token=${token}
 
             If you have any questions, please contact webmaster@4-playersofcolorado.org
           `,
@@ -99,25 +118,25 @@ const Mutations = {
             <p>Thanks for opting in!</p>
     
             <p>Visit this URL to create your profile:
-          ${process.env.FRONTEND_URL}/signup?token=${resetToken}</p>
+          ${process.env.FRONTEND_URL}/signup?token=${token}</p>
 
             <p>If you have any questions, please contact the <a href="mailto:webmaster@4-playersofcolorado.org">webmaster</a></p>
-          `
+          `,
         };
         break;
-      case "run": // User attended run
-      case "meeting": // User attended meeting
+      case 'run': // User attended run
+      case 'meeting': // User attended meeting
         emailDetails = {
           to: lowercaseEmail,
-          from: "no-reply@4-playersofcolorado.org",
-          subject: "Invitation to register at the 4-Players website",
+          from: 'no-reply@4-playersofcolorado.org',
+          subject: 'Invitation to register at the 4-Players website',
           text: `
           Hi ${firstName},
   
           You recently attended a 4-Players of Colorado event as a guest and have been invited to create an account on the 4-Players website.
   
           Visit this URL to create your profile:
-          ${process.env.FRONTEND_URL}/signup?token=${resetToken}
+          ${process.env.FRONTEND_URL}/signup?token=${token}
 
           If you have any questions, please contact webmaster@4-playersofcolorado.org
 
@@ -129,29 +148,27 @@ const Mutations = {
           <p>You recently attended a 4-Players of Colorado event as a guest and have been invited to create an account on the 4-Players website.</p>
 
           <p>Visit this URL to create your profile:
-        ${process.env.FRONTEND_URL}/signup?token=${resetToken}</p>
+        ${process.env.FRONTEND_URL}/signup?token=${token}</p>
 
           <p>If you have any questions, please contact the <a href="mailto:webmaster@4-playersofcolorado.org">webmaster</a></p>
 
           <p><small>If this message was sent to you in error, kindly disregard.</small></p>
-        `
+        `,
         };
         break;
-      case "admin": // Admin invited user directly
+      case 'admin': // Admin invited user directly
       default:
         emailDetails = {
           to: lowercaseEmail,
-          from: "no-reply@4-playersofcolorado.org",
-          subject: "Invitation to register at the 4-Players website",
+          from: 'no-reply@4-playersofcolorado.org',
+          subject: 'Invitation to register at the 4-Players website',
           text: `
             Hi ${firstName},
     
-            You've been invited by ${
-              ctx.req.user.firstName
-            } to create an account on the 4-Players of Colorado website.
+            You've been invited by ${ctx.req.user.firstName} to create an account on the 4-Players of Colorado website.
     
             Visit this URL to create your profile:
-            ${process.env.FRONTEND_URL}/signup?token=${resetToken}
+            ${process.env.FRONTEND_URL}/signup?token=${token}
 
             If you have any questions, please contact webmaster@4-playersofcolorado.org
 
@@ -160,26 +177,24 @@ const Mutations = {
           html: `
             <p>Hi ${firstName},</p>
     
-            <p>You've been invited by ${
-              ctx.req.user.firstName
-            } to create an account on the 4-Players of Colorado website.</p>
+            <p>You've been invited by ${ctx.req.user.firstName} to create an account on the 4-Players of Colorado website.</p>
 
             <p>Visit this URL to create your profile:
-          ${process.env.FRONTEND_URL}/signup?token=${resetToken}</p>
+          ${process.env.FRONTEND_URL}/signup?token=${token}</p>
 
             <p>If you have any questions, please contact the <a href="mailto:webmaster@4-playersofcolorado.org">webmaster</a></p>
 
             <p><small>If this message was sent to you in error, kindly disregard.</small></p>
-          `
+          `,
         };
     }
 
     // Email reset token
     return sendTransactionalEmail(emailDetails)
       .then(() => ({
-        message: "Registration was successful. Please check your email."
+        message: 'Registration was successful. Please check your email.',
       }))
-      .catch(err => {
+      .catch((err) => {
         //Extract error msg
         // const { message, code, response } = err;
 
@@ -219,19 +234,19 @@ const Mutations = {
               create: [
                 {
                   time: new Date(),
-                  message: "Account created",
-                  messageCode: "ACCOUNT_CREATED"
-                }
-              ]
-            }
-          }
+                  message: 'Account created',
+                  messageCode: 'ACCOUNT_CREATED',
+                },
+              ],
+            },
+          },
         },
-        info
+        info,
       );
 
       // Remove registration from database
       await ctx.db.mutation.deleteRegistration({
-        where: { token }
+        where: { token },
       });
 
       // Create JWT token for new user
@@ -244,7 +259,7 @@ const Mutations = {
       return sendTransactionalEmail({
         to: `4-Players Secretary <secretary@4-playersofcolorado.org>`,
         from: `4-Players Webmaster <no-reply@4-playersofcolorado.org>`,
-        subject: "[4-Players] New Account Registration",
+        subject: '[4-Players] New Account Registration',
         text: `
         A new guest account has been created:
         ${process.env.FRONTEND_URL}/profile/${username}
@@ -252,14 +267,14 @@ const Mutations = {
         html: `
         <p>A new guest account has been created:
         ${process.env.FRONTEND_URL}/profile/${username}</p>
-      `
+      `,
       })
         .then(
           // Send email to user
           sendTransactionalEmail({
             to: `${firstName} ${lastName} <${email}>`,
             from: `4-Players Webmaster <no-reply@4-playersofcolorado.org>`,
-            subject: "[4-Players] New Account Registration",
+            subject: '[4-Players] New Account Registration',
             text: `
           Hi ${firstName},
   
@@ -275,11 +290,11 @@ const Mutations = {
           ${process.env.FRONTEND_URL}/profile/${username}</p>
 
           <p>The secretary will review your account within 1-2 business days. Please make sure your profile is filled out.</p>
-        `
-          })
+        `,
+          }),
         )
-        .then(() => ({ message: "Account created" }))
-        .catch(err => {
+        .then(() => ({ message: 'Account created' }))
+        .catch((err) => {
           //Extract error msg
           // const { message, code, response } = err;
 
@@ -291,17 +306,17 @@ const Mutations = {
     } catch (error) {
       if (
         error.message ===
-        "A unique constraint would be violated on User. Details: Field name = username"
+        'A unique constraint would be violated on User. Details: Field name = username'
       ) {
-        throw new Error("That username is taken.");
+        throw new Error('That username is taken.');
       }
 
       if (
         error.message ===
-        "A unique constraint would be violated on User. Details: Field name = email"
+        'A unique constraint would be violated on User. Details: Field name = email'
       ) {
         throw new Error(
-          "There is already an account with that email address. Try resetting your password."
+          'There is already an account with that email address. Try resetting your password.',
         );
       }
 
@@ -313,16 +328,14 @@ const Mutations = {
     const logs = [
       {
         time: new Date(),
-        message: `Account unlocked by ${ctx.req.user.firstName} ${
-          ctx.req.user.lastName
-        }`,
-        messageCode: "ACCOUNT_UNLOCKED",
+        message: `Account unlocked by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+        messageCode: 'ACCOUNT_UNLOCKED',
         logger: {
           connect: {
-            id: ctx.req.userId
-          }
-        }
-      }
+            id: ctx.req.userId,
+          },
+        },
+      },
     ];
 
     // Update status
@@ -331,22 +344,22 @@ const Mutations = {
         data: {
           accountStatus: args.accountStatus,
           membershipLog: {
-            create: logs
-          }
+            create: logs,
+          },
         },
         where: {
-          id: args.userId
-        }
+          id: args.userId,
+        },
       },
-      info
+      info,
     );
 
     // Send email to user
     // TODO Hook up to welcome email template
     return sendTransactionalEmail({
       to: lowercaseEmail,
-      from: "secretary@4-playersofcolorado.org",
-      subject: "[4-Players] Account Approval",
+      from: 'secretary@4-playersofcolorado.org',
+      subject: '[4-Players] Account Approval',
       text: `
         Welcome, ${firstName}!
 
@@ -360,13 +373,11 @@ const Mutations = {
 
         <p>Thanks for signing up!</p>
 
-        <p><a href="${
-          process.env.FRONTEND_URL
-        }/login">Visit the site</a> to log in</p>
-      `
+        <p><a href="${process.env.FRONTEND_URL}/login">Visit the site</a> to log in</p>
+      `,
     })
-      .then(() => ({ message: "Account unlock successful." }))
-      .catch(err => {
+      .then(() => ({ message: 'Account unlock successful.' }))
+      .catch((err) => {
         //Extract error msg
         // const { message, code, response } = err;
 
@@ -381,65 +392,65 @@ const Mutations = {
     const user = await ctx.db.query.user({ where: { username } });
 
     if (!user) {
-      throw new Error("Username or password incorrect");
+      throw new Error('Username or password incorrect');
     }
 
     // Check if password is correct
     const valid = await bcrypt.compare(password, user.password);
 
     if (!valid) {
-      throw new Error("Invalid password"); // fix
+      throw new Error('Invalid password'); // fix
     }
 
     // Generate the JWT token
     const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET);
 
     // Set the cookie with the token
-    ctx.res.cookie("token", token, tokenSettings);
+    ctx.res.cookie('token', token, tokenSettings);
 
     // Update role
     await ctx.db.mutation.updateUser(
       {
         data: {
-          lastLogin: new Date()
+          lastLogin: new Date(),
         },
         where: {
-          id: user.id
-        }
+          id: user.id,
+        },
       },
-      info
+      info,
     );
 
     // Return the user
-    return { message: "Successfully logged in" };
+    return { message: 'Successfully logged in' };
   },
   logout(parent, args, ctx, info) {
-    ctx.res.clearCookie("token");
-    return { message: "Goodbye" };
+    ctx.res.clearCookie('token');
+    return { message: 'Goodbye' };
   },
   async requestReset(parent, { email }, ctx, info) {
     // Check if this is a real user
     const user = await ctx.db.query.user({
-      where: { email: email }
+      where: { email: email },
     });
 
     if (!user) {
-      throw new Error("Invalid email entered");
+      throw new Error('Invalid email entered');
     }
 
     // Set reset token and expiry
-    const resetToken = (await promisifiedRandomBytes(20)).toString("hex");
+    const resetToken = (await promisifiedRandomBytes(20)).toString('hex');
     const resetTokenExpiry = Date.now() + resetTokenTimeoutInMs;
     const res = await ctx.db.mutation.updateUser({
       where: { email: email },
-      data: { resetToken, resetTokenExpiry }
+      data: { resetToken, resetTokenExpiry },
     });
 
     // Email reset token
     return sendTransactionalEmail({
       to: user.email,
-      from: "no-reply@4-playersofcolorado.org",
-      subject: "Your 4-Players Password Reset",
+      from: 'no-reply@4-playersofcolorado.org',
+      subject: 'Your 4-Players Password Reset',
       text: `
         ${user.firstName},
 
@@ -450,13 +461,11 @@ const Mutations = {
       `,
       html: `
         Your password reset token for user "${user.username}" is here!
-        <a href="${
-          process.env.FRONTEND_URL
-        }/forgot-password?token=${resetToken}">Click here to reset your password</a>
-      `
+        <a href="${process.env.FRONTEND_URL}/forgot-password?token=${resetToken}">Click here to reset your password</a>
+      `,
     })
-      .then(() => ({ message: "Password reset is en route" }))
-      .catch(err => {
+      .then(() => ({ message: 'Password reset is en route' }))
+      .catch((err) => {
         //Extract error msg
         // const { message, code, response } = err;
 
@@ -469,19 +478,19 @@ const Mutations = {
   async resetPassword(parent, args, ctx, info) {
     // Check if passwords match
     if (args.password !== args.confirmPassword) {
-      throw new Error("Passwords do not match");
+      throw new Error('Passwords do not match');
     }
 
     // Check if token is legit and not expired
     const [user] = await ctx.db.query.users({
       where: {
         resetToken: args.resetToken,
-        resetTokenExpiry_gte: Date.now() - resetTokenTimeoutInMs
-      }
+        resetTokenExpiry_gte: Date.now() - resetTokenTimeoutInMs,
+      },
     });
 
     if (!user) {
-      throw new Error("Token invalid or expired");
+      throw new Error('Token invalid or expired');
     }
 
     // Hash the new password
@@ -493,15 +502,15 @@ const Mutations = {
       data: {
         password,
         resetToken: null,
-        resetTokenExpiry: null
-      }
+        resetTokenExpiry: null,
+      },
     });
 
     // Generate JWT
     const token = jwt.sign({ userId: updatedUser.id }, process.env.JWT_SECRET);
 
     // Set JWT cookie
-    ctx.res.cookie("token", token, tokenSettings);
+    ctx.res.cookie('token', token, tokenSettings);
 
     // Return the new user
     return updatedUser;
@@ -510,12 +519,12 @@ const Mutations = {
     const { user, userId } = ctx.req;
 
     if (!userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Check if passwords match
     if (args.password !== args.confirmPassword) {
-      throw new Error("Passwords do not match");
+      throw new Error('Passwords do not match');
     }
 
     // Hash the new password
@@ -525,8 +534,8 @@ const Mutations = {
     const updatedUser = await ctx.db.mutation.updateUser({
       where: { email: user.email },
       data: {
-        password
-      }
+        password,
+      },
     });
 
     // // Generate JWT
@@ -535,45 +544,45 @@ const Mutations = {
     // // Set JWT cookie
     // ctx.res.cookie('token', token, tokenSettings);
 
-    return { message: "Your password has been changed" };
+    return { message: 'Your password has been changed' };
   },
   async changeEmail(parent, args, ctx, info) {
     const { userId } = ctx.req;
     const email = args.email.toLowerCase();
 
     if (!userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Save the new password to the User, remove old reset token fields
     await ctx.db.mutation.updateUser({
       where: { id: userId },
       data: {
-        email
-      }
+        email,
+      },
     });
 
-    return { message: "Your email has been changed" };
+    return { message: 'Your email has been changed' };
   },
   async updateRole(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Query the current user
     const currentUser = await ctx.db.query.user(
       {
-        where: { id: ctx.req.userId }
+        where: { id: ctx.req.userId },
       },
-      info
+      info,
     );
 
     // Have proper roles to do this?
-    hasRole(currentUser, ["ADMIN"]);
+    hasRole(currentUser, ['ADMIN']);
 
     // Requesting user has proper account status?
-    hasAccountStatus(ctx.req.user, ["ACTIVE"]);
+    hasAccountStatus(ctx.req.user, ['ACTIVE']);
 
     // Update role
     try {
@@ -585,55 +594,51 @@ const Mutations = {
               create: [
                 {
                   time: new Date(),
-                  message: `Role changed to "${args.role}" by ${
-                    ctx.req.user.firstName
-                  } ${ctx.req.user.lastName}`,
-                  messageCode: "ACCOUNT_CHANGED",
+                  message: `Role changed to "${args.role}" by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+                  messageCode: 'ACCOUNT_CHANGED',
                   logger: {
                     connect: {
-                      id: ctx.req.userId
-                    }
-                  }
-                }
-              ]
-            }
+                      id: ctx.req.userId,
+                    },
+                  },
+                },
+              ],
+            },
           },
           where: {
-            id: args.userId
-          }
+            id: args.userId,
+          },
         },
-        info
+        info,
       );
     } catch (e) {
-      throw new Error("");
+      throw new Error('');
     }
   },
   async updateAccountType(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Have proper roles to do this?
-    hasRole(ctx.req.user, ["ADMIN"]);
+    hasRole(ctx.req.user, ['ADMIN']);
 
     // Requesting user has proper account status?
-    hasAccountStatus(ctx.req.user, ["ACTIVE"]);
+    hasAccountStatus(ctx.req.user, ['ACTIVE']);
 
     // Changing account type to 'FULL', add membership log
     const logs = [
       {
         time: new Date(),
-        message: `Account type changed to "${args.accountType}" by ${
-          ctx.req.user.firstName
-        } ${ctx.req.user.lastName}`,
-        messageCode: "ACCOUNT_CHANGED",
+        message: `Account type changed to "${args.accountType}" by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+        messageCode: 'ACCOUNT_CHANGED',
         logger: {
           connect: {
-            id: ctx.req.userId
-          }
-        }
-      }
+            id: ctx.req.userId,
+          },
+        },
+      },
     ];
 
     // Update account type
@@ -642,68 +647,64 @@ const Mutations = {
         data: {
           accountType: args.accountType,
           membershipLog: {
-            create: logs
-          }
+            create: logs,
+          },
         },
         where: {
-          id: args.userId
-        }
+          id: args.userId,
+        },
       },
-      info
+      info,
     );
   },
   async updateAccountStatus(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Have proper roles to do this?
-    hasRole(ctx.req.user, ["ADMIN"]);
+    hasRole(ctx.req.user, ['ADMIN']);
 
     // Requesting user has proper account status?
-    hasAccountStatus(ctx.req.user, ["ACTIVE"]);
+    hasAccountStatus(ctx.req.user, ['ACTIVE']);
 
     // Query the current user
     const currentUser = await ctx.db.query.user(
       {
-        where: { id: args.userId }
+        where: { id: args.userId },
       },
-      "{ accountStatus }"
+      '{ accountStatus }',
     );
 
     // Add membership log
     const logs = [
       {
         time: new Date(),
-        message: `Account status changed to "${args.accountStatus}" by ${
-          ctx.req.user.firstName
-        } ${ctx.req.user.lastName}`,
-        messageCode: "ACCOUNT_CHANGED",
+        message: `Account status changed to "${args.accountStatus}" by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+        messageCode: 'ACCOUNT_CHANGED',
         logger: {
           connect: {
-            id: ctx.req.userId
-          }
-        }
-      }
+            id: ctx.req.userId,
+          },
+        },
+      },
     ];
 
     // Account unlocked
     if (
-      currentUser.accountStatus === "LOCKED" &&
-      args.data.accountStatus !== "LOCKED"
+      currentUser.accountStatus === 'LOCKED' &&
+      args.data.accountStatus !== 'LOCKED'
     ) {
       logs.push({
         time: new Date(),
-        message: `Account unlocked by ${ctx.req.user.firstName} ${
-          ctx.req.user.lastName
-        }`,
-        messageCode: "ACCOUNT_UNLOCKED",
+        message: `Account unlocked by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+        messageCode: 'ACCOUNT_UNLOCKED',
         logger: {
           connect: {
-            id: ctx.req.userId
-          }
-        }
+            id: ctx.req.userId,
+          },
+        },
       });
     }
 
@@ -713,177 +714,161 @@ const Mutations = {
         data: {
           accountStatus: args.accountStatus,
           membershipLog: {
-            create: logs
-          }
+            create: logs,
+          },
         },
         where: {
-          id: args.userId
-        }
+          id: args.userId,
+        },
       },
-      info
+      info,
     );
   },
   async updateOffice(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Have proper account status to do this?
-    hasRole(ctx.req.user, ["ADMIN"]);
+    hasRole(ctx.req.user, ['ADMIN']);
 
     // Requesting user has proper account status?
-    hasAccountStatus(ctx.req.user, ["ACTIVE"]);
+    hasAccountStatus(ctx.req.user, ['ACTIVE']);
 
     const { office: existingOffice } = await ctx.db.query.user(
       { where: { id: args.userId } },
-      "{ office }"
+      '{ office }',
     );
 
     if (existingOffice === args.office) {
-      throw new Error("Cannot change office to the same office");
+      throw new Error('Cannot change office to the same office');
     }
 
     const defaultLog = {
       time: new Date(),
       logger: {
         connect: {
-          id: ctx.req.userId
-        }
-      }
+          id: ctx.req.userId,
+        },
+      },
     };
 
     const logs = [];
 
     // Add new value
-    if (existingOffice === null && typeof args.office === "string") {
+    if (existingOffice === null && typeof args.office === 'string') {
       logs.push({
-        message: `"${args.office}" office added by ${ctx.req.user.firstName} ${
-          ctx.req.user.lastName
-        }`,
-        messageCode: "OFFICE_ADDED"
+        message: `"${args.office}" office added by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+        messageCode: 'OFFICE_ADDED',
       });
     }
     // Removing old value
-    else if (typeof existingOffice === "string" && args.office === null) {
+    else if (typeof existingOffice === 'string' && args.office === null) {
       logs.push({
-        message: `"${existingOffice}" office removed by ${
-          ctx.req.user.firstName
-        } ${ctx.req.user.lastName}`,
-        messageCode: "OFFICE_REMOVED"
+        message: `"${existingOffice}" office removed by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+        messageCode: 'OFFICE_REMOVED',
       });
     }
     // Replacing old value
     else if (existingOffice !== args.office) {
       logs.push(
         {
-          message: `"${existingOffice}" office removed by ${
-            ctx.req.user.firstName
-          } ${ctx.req.user.lastName}`,
-          messageCode: "OFFICE_REMOVED"
+          message: `"${existingOffice}" office removed by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+          messageCode: 'OFFICE_REMOVED',
         },
         {
-          message: `"${args.office}" office added by ${
-            ctx.req.user.firstName
-          } ${ctx.req.user.lastName}`,
-          messageCode: "OFFICE_ADDED"
-        }
+          message: `"${args.office}" office added by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+          messageCode: 'OFFICE_ADDED',
+        },
       );
     }
 
-    const messageLogs = logs.map(log => ({
+    const messageLogs = logs.map((log) => ({
       ...log,
-      ...defaultLog
+      ...defaultLog,
     }));
 
     // Update office
     return ctx.db.mutation.updateUser(
       {
         data: {
-          office: args.office === "NONE" ? null : args.office,
+          office: args.office === 'NONE' ? null : args.office,
           membershipLog: {
-            create: messageLogs
-          }
+            create: messageLogs,
+          },
         },
         where: {
-          id: args.userId
-        }
+          id: args.userId,
+        },
       },
-      info
+      info,
     );
   },
   async updateTitle(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Have proper roles to do this?
-    hasRole(ctx.req.user, ["ADMIN"]);
+    hasRole(ctx.req.user, ['ADMIN']);
 
     // Requesting user has proper account status?
-    hasAccountStatus(ctx.req.user, ["ACTIVE"]);
+    hasAccountStatus(ctx.req.user, ['ACTIVE']);
 
     const { title: existingTitle } = await ctx.db.query.user(
       { where: { id: args.userId } },
-      "{ title }"
+      '{ title }',
     );
 
     if (existingTitle === args.title) {
-      throw new Error("Cannot change title to the same title");
+      throw new Error('Cannot change title to the same title');
     }
 
     const defaultLog = {
       time: new Date(),
       logger: {
         connect: {
-          id: ctx.req.userId
-        }
-      }
+          id: ctx.req.userId,
+        },
+      },
     };
 
     const logs = [];
 
     // Add new value
-    if (existingTitle === null && typeof args.title === "string") {
+    if (existingTitle === null && typeof args.title === 'string') {
       logs.push({
-        message: `"${args.title}" title added by ${ctx.req.user.firstName} ${
-          ctx.req.user.lastName
-        }`,
-        messageCode: "TITLE_ADDED"
+        message: `"${args.title}" title added by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+        messageCode: 'TITLE_ADDED',
       });
     }
     // Removing old value
-    else if (typeof existingTitle === "string" && args.title === null) {
+    else if (typeof existingTitle === 'string' && args.title === null) {
       logs.push({
-        message: `"${existingTitle}" title removed by ${
-          ctx.req.user.firstName
-        } ${ctx.req.user.lastName}`,
-        messageCode: "TITLE_REMOVED"
+        message: `"${existingTitle}" title removed by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+        messageCode: 'TITLE_REMOVED',
       });
     }
     // Replacing old value
     else if (existingTitle !== args.title) {
       logs.push(
         {
-          message: `"${existingTitle}" title removed by ${
-            ctx.req.user.firstName
-          } ${ctx.req.user.lastName}`,
-          messageCode: "TITLE_REMOVED"
+          message: `"${existingTitle}" title removed by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+          messageCode: 'TITLE_REMOVED',
         },
         {
-          message: `"${args.title}" title added by ${ctx.req.user.firstName} ${
-            ctx.req.user.lastName
-          }`,
-          messageCode: "TITLE_ADDED"
-        }
+          message: `"${args.title}" title added by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+          messageCode: 'TITLE_ADDED',
+        },
       );
     }
 
-    const messageLogs = logs.map(log => ({
+    const messageLogs = logs.map((log) => ({
       ...log,
       ...defaultLog,
-      time: new Date()
+      time: new Date(),
     }));
 
     // Update title
@@ -892,27 +877,27 @@ const Mutations = {
         data: {
           title: args.title,
           membershipLog: {
-            create: messageLogs
-          }
+            create: messageLogs,
+          },
         },
         where: {
-          id: args.userId
-        }
+          id: args.userId,
+        },
       },
-      info
+      info,
     );
   },
   async createEvent(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Have proper roles to do this?
-    hasRole(ctx.req.user, ["ADMIN", "OFFICER", "RUN_MASTER"]);
+    hasRole(ctx.req.user, ['ADMIN', 'OFFICER', 'RUN_MASTER']);
 
     // Requesting user has proper account status?
-    hasAccountStatus(ctx.req.user, ["ACTIVE"]);
+    hasAccountStatus(ctx.req.user, ['ACTIVE']);
 
     const { event } = args;
 
@@ -920,61 +905,61 @@ const Mutations = {
       {
         member: {
           connect: {
-            username: event.host
-          }
+            username: event.host,
+          },
         },
-        status: "GOING"
-      }
+        status: 'GOING',
+      },
     ];
 
     const data = {
       type: event.type,
       title: event.title,
-      description: event.description || "",
+      description: event.description || '',
       startTime: new Date(event.startTime),
       endTime: new Date(event.endTime),
-      address: event.address || "",
-      trailDifficulty: event.trailDifficulty || "",
+      address: event.address || '',
+      trailDifficulty: event.trailDifficulty || '',
       // trailNotes: event.trailNotes,
-      rallyAddress: event.rallyAddress || "",
-      rallyTime: event.rallyTime || "",
+      rallyAddress: event.rallyAddress || '',
+      rallyTime: event.rallyTime || '',
       membersOnly: false, // TODO
       creator: {
-        connect: { id: ctx.req.userId }
+        connect: { id: ctx.req.userId },
       },
       host: {
         connect: {
-          username: event.host
-        }
+          username: event.host,
+        },
       },
       rsvps: {
-        create: attendees
-      }
+        create: attendees,
+      },
     };
 
-    if (event.trail !== "0") {
+    if (event.trail !== '0') {
       data.trail = {
         connect: {
-          id: event.trail
-        }
+          id: event.trail,
+        },
       };
     }
 
     const results = await ctx.db.mutation.createEvent({ data }, info);
 
-    return { message: "Your event has been created" };
+    return { message: 'Your event has been created' };
   },
   async updateEvent(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Have proper roles to do this?
-    hasRole(ctx.req.user, ["ADMIN", "OFFICER", "RUN_MASTER"]);
+    hasRole(ctx.req.user, ['ADMIN', 'OFFICER', 'RUN_MASTER']);
 
     // Requesting user has proper account status?
-    hasAccountStatus(ctx.req.user, ["ACTIVE"]);
+    hasAccountStatus(ctx.req.user, ['ACTIVE']);
 
     const { event, id: eventId } = args;
 
@@ -982,44 +967,44 @@ const Mutations = {
     const existingEvent = await ctx.db.query.event(
       {
         where: {
-          id: eventId
-        }
+          id: eventId,
+        },
       },
-      info
+      info,
     );
 
     const data = {
       title: event.title,
-      description: event.description || "",
+      description: event.description || '',
       startTime: new Date(event.startTime),
       endTime: new Date(event.endTime),
-      address: event.address || "",
-      trailDifficulty: event.trailDifficulty || "",
+      address: event.address || '',
+      trailDifficulty: event.trailDifficulty || '',
       // trailNotes: event.trailNotes,
-      rallyAddress: event.rallyAddress || "",
-      rallyTime: event.rallyTime || "",
+      rallyAddress: event.rallyAddress || '',
+      rallyTime: event.rallyTime || '',
       membersOnly: false, // TODO
       creator: {
-        connect: { id: ctx.req.userId }
+        connect: { id: ctx.req.userId },
       },
       host: {
         connect: {
-          username: event.host
-        }
-      }
+          username: event.host,
+        },
+      },
     };
 
-    if (event.trail && event.trail !== "0") {
+    if (event.trail && event.trail !== '0') {
       // New trail submitted
       data.trail = {
         connect: {
-          id: event.trail
-        }
+          id: event.trail,
+        },
       };
     } else if (existingEvent.trail && existingEvent.trail.id && !event.trail) {
       // Remove old trail
       data.trail = {
-        disconnect: true
+        disconnect: true,
       };
     }
 
@@ -1028,12 +1013,12 @@ const Mutations = {
       data.featuredImage = {
         upsert: {
           create: {
-            ...event.newFeaturedImage
+            ...event.newFeaturedImage,
           },
           update: {
-            ...event.newFeaturedImage
-          }
-        }
+            ...event.newFeaturedImage,
+          },
+        },
       };
     } else if (
       existingEvent.featuredImage &&
@@ -1042,7 +1027,7 @@ const Mutations = {
     ) {
       // Remove old featured image
       data.featuredImage = {
-        delete: true
+        delete: true,
       };
     }
 
@@ -1050,48 +1035,48 @@ const Mutations = {
       {
         data,
         where: {
-          id: eventId
-        }
+          id: eventId,
+        },
       },
-      info
+      info,
     );
 
-    return { message: "Your event has been updated" };
+    return { message: 'Your event has been updated' };
   },
   async setRSVP(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     const { rsvp } = args;
 
     // Requesting user has proper account status?
-    hasAccountStatus(ctx.req.user, ["ACTIVE"]);
+    hasAccountStatus(ctx.req.user, ['ACTIVE']);
 
     // Requesting user has proper role?
     if (ctx.req.userId !== rsvp.userId) {
-      hasRole(ctx.req.user, ["ADMIN", "OFFICER"]);
+      hasRole(ctx.req.user, ['ADMIN', 'OFFICER']);
     }
 
     // Query the current user
     const currentUser = await ctx.db.query.user(
       { where: { id: rsvp.userId } },
-      "{ id, eventsRSVPd { id, status, event { id } } }"
+      '{ id, eventsRSVPd { id, status, event { id } } }',
     );
 
     if (!currentUser) {
-      throw new Error("User does not have permission");
+      throw new Error('User does not have permission');
     }
 
     // Has this user already RSVPd?
     const userRSVP = currentUser.eventsRSVPd.find(
-      eventRSVP => eventRSVP.event.id === rsvp.eventId
+      (eventRSVP) => eventRSVP.event.id === rsvp.eventId,
     );
 
     // If this RSVP is not different, return gracefully
     if (userRSVP && userRSVP.status === rsvp.status) {
-      return { message: "Already RSVPd, no change recorded" };
+      return { message: 'Already RSVPd, no change recorded' };
     }
 
     // If this RSVP is different, update RSVP
@@ -1099,12 +1084,12 @@ const Mutations = {
       await ctx.db.mutation.updateRSVP(
         {
           where: { id: userRSVP.id },
-          data: { status: rsvp.status }
+          data: { status: rsvp.status },
         },
-        info
+        info,
       );
 
-      return { message: "Thank you for updating your RSVP" };
+      return { message: 'Thank you for updating your RSVP' };
     }
 
     // If RSVP is missing, record RSVP
@@ -1114,25 +1099,25 @@ const Mutations = {
           status: rsvp.status,
           member: {
             connect: {
-              id: rsvp.userId
-            }
+              id: rsvp.userId,
+            },
           },
           event: {
             connect: {
-              id: rsvp.eventId
-            }
-          }
-        }
+              id: rsvp.eventId,
+            },
+          },
+        },
       },
-      info
+      info,
     );
 
-    return { message: "Thank you for RSVPing" };
+    return { message: 'Thank you for RSVPing' };
   },
   async sendMessage(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Requesting user has proper account status?
@@ -1141,62 +1126,65 @@ const Mutations = {
     const { to, subject, htmlText } = args;
 
     if (to.length === 0) {
-      throw new Error("No recipients found");
+      throw new Error('No recipients found');
     }
 
     // Can email ALL users
-    if (to.includes("all_users")) {
-      hasRole(user, ["ADMIN"]);
-      hasAccountStatus(user, ["ACTIVE"]);
-      hasAccountType(user, ["FULL"]);
+    if (to.includes('all_users')) {
+      hasRole(user, ['ADMIN']);
+      hasAccountStatus(user, ['ACTIVE']);
+      hasAccountType(user, ['FULL']);
     }
 
     // Can email guests or full members
     if (
-      to.includes("guests") ||
-      to.includes("all_active") ||
-      to.includes("full_membership")
+      to.includes('guests') ||
+      to.includes('all_active') ||
+      to.includes('full_membership')
     ) {
       // Is active full member and at least an officer
-      hasRole(user, ["ADMIN", "OFFICER"]);
-      hasAccountStatus(user, ["ACTIVE"]);
-      hasAccountType(user, ["FULL"]);
+      hasRole(user, ['ADMIN', 'OFFICER']);
+      hasAccountStatus(user, ['ACTIVE']);
+      hasAccountType(user, ['FULL']);
     }
 
     // Can email run leaders
-    if (to.includes("run_leaders")) {
+    if (to.includes('run_leaders')) {
       // Is active full member and at least the Run Master
-      hasRole(user, ["ADMIN", "OFFICER", "RUN_MASTER"]);
-      hasAccountStatus(user, ["ACTIVE"]);
-      hasAccountType(user, ["FULL"]);
+      hasRole(user, ['ADMIN', 'OFFICER', 'RUN_MASTER']);
+      hasAccountStatus(user, ['ACTIVE']);
+      hasAccountType(user, ['FULL']);
     }
 
     // Can email multiple individual members
     if (
-      (!to.includes("officers") || !to.includes("webmaster")) &&
-      !to.some(subject => subject === emailGroups) &&
+      (!to.includes('officers') || !to.includes('webmaster')) &&
+      !to.some((subject) => subject === emailGroups) &&
       to.length > 1
     ) {
       // Is active full or emeritus and at least a run leader
-      hasRole(user, roles.filter(role => role !== "USER"));
-      hasAccountStatus(user, ["ACTIVE"]);
-      hasAccountType(user, ["FULL", "EMERITUS"]);
+      hasRole(
+        user,
+        roles.filter((role) => role !== 'USER'),
+      );
+      hasAccountStatus(user, ['ACTIVE']);
+      hasAccountType(user, ['FULL', 'EMERITUS']);
     }
 
     // Can email individual members
     if (
-      (!to.includes("officers") || !to.includes("webmaster")) &&
-      !to.some(subject => subject === emailGroups)
+      (!to.includes('officers') || !to.includes('webmaster')) &&
+      !to.some((subject) => subject === emailGroups)
     ) {
       // Is active full or emeritus
-      hasAccountStatus(user, ["ACTIVE"]);
-      hasAccountType(user, ["FULL", "EMERITUS", "ASSOCIATE"]);
+      hasAccountStatus(user, ['ACTIVE']);
+      hasAccountType(user, ['FULL', 'EMERITUS', 'ASSOCIATE']);
     }
 
     // Can email Run Master
-    if (to.includes("runmaster")) {
+    if (to.includes('runmaster')) {
       // Is active member
-      hasAccountStatus(user, ["ACTIVE"]);
+      hasAccountStatus(user, ['ACTIVE']);
     }
 
     // Anyone logged in can email the officers or the webmaster
@@ -1205,19 +1193,19 @@ const Mutations = {
       from: user.email,
       subject: `[4-Players] ${subject || `Message from ${user.firstName}`}`,
       // text,
-      html: htmlText
+      html: htmlText,
     };
 
     if (
       to.length === 1 &&
-      !emailGroups.some(recipient => recipient === to[0])
+      !emailGroups.some((recipient) => recipient === to[0])
     ) {
       // Send email to one person
       const email = await ctx.db.query.user(
         {
-          where: { username: to[0] }
+          where: { username: to[0] },
         },
-        "{ email }"
+        '{ email }',
       );
 
       emailSettings.to = [email];
@@ -1225,45 +1213,45 @@ const Mutations = {
       // Send email to many people
       // To do: email permissions
       const peopleQueries = to
-        .filter(recipient => !emailGroups.includes(recipient))
-        .map(person => ({ username: person }));
+        .filter((recipient) => !emailGroups.includes(recipient))
+        .map((person) => ({ username: person }));
       const groupQueries = to
-        .filter(recipient => emailGroups.includes(recipient))
-        .map(group => {
+        .filter((recipient) => emailGroups.includes(recipient))
+        .map((group) => {
           switch (group) {
-            case "officers":
+            case 'officers':
               return {
-                NOT: { office: null }
+                NOT: { office: null },
               };
-            case "runmaster":
-              return { role: "RUN_MASTER" };
-            case "webmaster":
-              return { title: "WEBMASTER" };
-            case "run_leaders":
-              return { role: "RUN_LEADER" };
-            case "full_membership":
+            case 'runmaster':
+              return { role: 'RUN_MASTER' };
+            case 'webmaster':
+              return { title: 'WEBMASTER' };
+            case 'run_leaders':
+              return { role: 'RUN_LEADER' };
+            case 'full_membership':
               return {
                 AND: [
                   {
                     OR: [
-                      { accountType: "FULL" },
-                      { accountType: "EMITERUS" },
-                      { accountType: "ASSOCIATE" }
-                    ]
+                      { accountType: 'FULL' },
+                      { accountType: 'EMITERUS' },
+                      { accountType: 'ASSOCIATE' },
+                    ],
                   },
-                  { accountStatus: "ACTIVE" }
-                ]
+                  { accountStatus: 'ACTIVE' },
+                ],
               };
-            case "all_active":
-              return { accountStatus: "ACTIVE" };
-            case "all_users":
+            case 'all_active':
+              return { accountStatus: 'ACTIVE' };
+            case 'all_users':
               return {
-                NOT: { email: null }
+                NOT: { email: null },
               };
             default:
               // guests
               return {
-                AND: [{ accountType: "GUEST" }, { accountStatus: "ACTIVE" }]
+                AND: [{ accountType: 'GUEST' }, { accountStatus: 'ACTIVE' }],
               };
           }
         });
@@ -1271,23 +1259,23 @@ const Mutations = {
       // To do: handle duplicates, if any
       let query = {
         where: {
-          OR: peopleQueries
-        }
+          OR: peopleQueries,
+        },
       };
 
       if (groupQueries.length) {
         query = {
           where: {
-            OR: [...query.where["OR"], ...groupQueries]
-          }
+            OR: [...query.where['OR'], ...groupQueries],
+          },
         };
       }
 
-      const emails = await ctx.db.query.users(query, "{ email }");
+      const emails = await ctx.db.query.users(query, '{ email }');
 
       if (emails && emails.length > 1) {
-        emailSettings.to = "info@4-playersofcolorado.org";
-        emailSettings.bcc = emails.map(email => email.email);
+        emailSettings.to = 'info@4-playersofcolorado.org';
+        emailSettings.bcc = emails.map((email) => email.email);
       } else {
         emailSettings.to = user.email;
       }
@@ -1295,69 +1283,67 @@ const Mutations = {
 
     if (emailSettings.to.length >= 1) {
       return sendTransactionalEmail(emailSettings)
-        .then(() => ({ message: "Message has been sent" }))
-        .catch(err => {
+        .then(() => ({ message: 'Message has been sent' }))
+        .catch((err) => {
           throw new Error(err.toString());
         });
     }
 
-    throw new Error("No email addresses found for recipient(s)");
+    throw new Error('No email addresses found for recipient(s)');
   },
   async updateUserProfileSettings(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Have proper roles to do this?
     if (
-      hasRole(ctx.req.user, ["ADMIN", "OFFICER"], false) ||
+      hasRole(ctx.req.user, ['ADMIN', 'OFFICER'], false) ||
       isSelf(ctx.req.user, args.id, false)
     ) {
       // Query the current user
       const currentUser = await ctx.db.query.user(
         {
-          where: { id: args.id }
+          where: { id: args.id },
         },
-        "{ accountType, accountStatus, role, joined }"
+        '{ accountType, accountStatus, role, joined }',
       );
 
       const logs = [];
 
       // Became a full member
       if (
-        currentUser.accountType === "FULL" &&
-        typeof args.data.joined === "string" &&
+        currentUser.accountType === 'FULL' &&
+        typeof args.data.joined === 'string' &&
         currentUser.joined === null
       ) {
         logs.push({
           time: new Date(),
-          message: "Became a Full Member",
-          messageCode: "MEMBERSHIP_GRANTED",
+          message: 'Became a Full Member',
+          messageCode: 'MEMBERSHIP_GRANTED',
           logger: {
             connect: {
-              id: ctx.req.userId
-            }
-          }
+              id: ctx.req.userId,
+            },
+          },
         });
       }
 
       // Account unlocked
       if (
-        currentUser.accountStatus === "LOCKED" &&
-        args.data.accountStatus !== "LOCKED"
+        currentUser.accountStatus === 'LOCKED' &&
+        args.data.accountStatus !== 'LOCKED'
       ) {
         logs.push({
           time: new Date(),
-          message: `Account unlocked by ${ctx.req.user.firstName} ${
-            ctx.req.user.lastName
-          }`,
-          messageCode: "ACCOUNT_UNLOCKED",
+          message: `Account unlocked by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+          messageCode: 'ACCOUNT_UNLOCKED',
           logger: {
             connect: {
-              id: ctx.req.userId
-            }
-          }
+              id: ctx.req.userId,
+            },
+          },
         });
       }
 
@@ -1380,72 +1366,72 @@ const Mutations = {
                 city: args.data.city,
                 state: args.data.state,
                 zip: args.data.zip,
-                phone: args.data.phone
+                phone: args.data.phone,
               },
               update: {
                 street: args.data.street,
                 city: args.data.city,
                 state: args.data.state,
                 zip: args.data.zip,
-                phone: args.data.phone
-              }
-            }
+                phone: args.data.phone,
+              },
+            },
           },
           preferences: {
             upsert: {
               create: {
                 emergencyContactName: args.data.emergencyContactName,
                 emergencyContactPhone: args.data.emergencyContactPhone,
-                showPhoneNumber: args.data.showPhoneNumber
+                showPhoneNumber: args.data.showPhoneNumber,
               },
               update: {
                 emergencyContactName: args.data.emergencyContactName,
                 emergencyContactPhone: args.data.emergencyContactPhone,
-                showPhoneNumber: args.data.showPhoneNumber
-              }
-            }
+                showPhoneNumber: args.data.showPhoneNumber,
+              },
+            },
           },
           membershipLog: {
-            create: logs
-          }
+            create: logs,
+          },
         },
-        where: { id: args.id }
+        where: { id: args.id },
       };
 
       const results = await ctx.db.mutation.updateUser(obj, info);
 
       if (false) {
-        return { message: "Unable to update user profile settings" };
+        return { message: 'Unable to update user profile settings' };
       }
-      return { message: "User profile settings updated" };
+      return { message: 'User profile settings updated' };
     } else {
       throw new Error(
-        "User profile can only be updated by the user, an admin, or an officer"
+        'User profile can only be updated by the user, an admin, or an officer',
       );
     }
   },
   async updateUserAdminProfileSettings(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Have proper roles to do this?
-    if (!hasRole(ctx.req.user, ["ADMIN", "OFFICER"], false)) {
+    if (!hasRole(ctx.req.user, ['ADMIN', 'OFFICER'], false)) {
       throw new Error(
-        "User profile can only be updated by an admin or an officer"
+        'User profile can only be updated by an admin or an officer',
       );
     }
 
     // Requesting user has proper account status?
-    hasAccountStatus(ctx.req.user, ["ACTIVE"]);
+    hasAccountStatus(ctx.req.user, ['ACTIVE']);
 
     const { data } = args;
 
     // Query the current user
     const currentUser = await ctx.db.query.user(
       { where: { id: args.id } },
-      "{ id, accountType, accountStatus, role, office, title }"
+      '{ id, accountType, accountStatus, role, office, title }',
     );
 
     // Logs
@@ -1453,123 +1439,101 @@ const Mutations = {
       time: new Date(),
       logger: {
         connect: {
-          id: ctx.req.userId
-        }
-      }
+          id: ctx.req.userId,
+        },
+      },
     };
 
     const logs = [];
 
     // Add new title
-    if (currentUser.title === null && typeof data.title === "string") {
+    if (currentUser.title === null && typeof data.title === 'string') {
       logs.push({
-        message: `"${data.title}" title added by ${ctx.req.user.firstName} ${
-          ctx.req.user.lastName
-        }`,
-        messageCode: "TITLE_ADDED"
+        message: `"${data.title}" title added by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+        messageCode: 'TITLE_ADDED',
       });
     }
     // Removing old title
-    else if (typeof currentUser.title === "string" && data.title === null) {
+    else if (typeof currentUser.title === 'string' && data.title === null) {
       logs.push({
-        message: `"${currentUser.title}" title removed by ${
-          ctx.req.user.firstName
-        } ${ctx.req.user.lastName}`,
-        messageCode: "TITLE_REMOVED"
+        message: `"${currentUser.title}" title removed by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+        messageCode: 'TITLE_REMOVED',
       });
     }
     // Replace title
     else if (
-      typeof currentUser.title === "string" &&
-      typeof data.title === "string" &&
+      typeof currentUser.title === 'string' &&
+      typeof data.title === 'string' &&
       currentUser.title !== data.title
     ) {
       logs.push(
         {
-          message: `"${currentUser.title}" title removed by ${
-            ctx.req.user.firstName
-          } ${ctx.req.user.lastName}`,
-          messageCode: "TITLE_REMOVED"
+          message: `"${currentUser.title}" title removed by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+          messageCode: 'TITLE_REMOVED',
         },
         {
-          message: `"${data.title}" title added by ${ctx.req.user.firstName} ${
-            ctx.req.user.lastName
-          }`,
-          messageCode: "TITLE_ADDED"
-        }
+          message: `"${data.title}" title added by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+          messageCode: 'TITLE_ADDED',
+        },
       );
     }
 
     // Add new office
-    if (currentUser.office === null && typeof data.office === "string") {
+    if (currentUser.office === null && typeof data.office === 'string') {
       logs.push({
-        message: `"${data.office}" office added by ${ctx.req.user.firstName} ${
-          ctx.req.user.lastName
-        }`,
-        messageCode: "OFFICE_ADDED"
+        message: `"${data.office}" office added by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+        messageCode: 'OFFICE_ADDED',
       });
     }
     // Removing old office
-    else if (typeof currentUser.office === "string" && data.office === null) {
+    else if (typeof currentUser.office === 'string' && data.office === null) {
       logs.push({
-        message: `"${currentUser.office}" office removed by ${
-          ctx.req.user.firstName
-        } ${ctx.req.user.lastName}`,
-        messageCode: "OFFICE_REMOVED"
+        message: `"${currentUser.office}" office removed by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+        messageCode: 'OFFICE_REMOVED',
       });
     }
     // Replace office
     else if (
-      typeof currentUser.office === "string" &&
-      typeof data.office === "string" &&
+      typeof currentUser.office === 'string' &&
+      typeof data.office === 'string' &&
       currentUser.office !== data.office
     ) {
       logs.push(
         {
-          message: `"${currentUser.office}" office removed by ${
-            ctx.req.user.firstName
-          } ${ctx.req.user.lastName}`,
-          messageCode: "OFFICE_REMOVED"
+          message: `"${currentUser.office}" office removed by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+          messageCode: 'OFFICE_REMOVED',
         },
         {
-          message: `"${data.office}" office added by ${
-            ctx.req.user.firstName
-          } ${ctx.req.user.lastName}`,
-          messageCode: "OFFICE_ADDED"
-        }
+          message: `"${data.office}" office added by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+          messageCode: 'OFFICE_ADDED',
+        },
       );
     }
 
     if (currentUser.role !== data.role) {
       logs.push({
-        message: `Role changed to "${data.role}" by ${ctx.req.user.firstName} ${
-          ctx.req.user.lastName
-        }`,
-        messageCode: "ACCOUNT_CHANGED"
+        message: `Role changed to "${data.role}" by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+        messageCode: 'ACCOUNT_CHANGED',
       });
     }
 
     if (currentUser.accountStatus !== data.accountStatus) {
       logs.push({
-        message: `Account status changed to "${data.accountStatus}" by ${
-          ctx.req.user.firstName
-        } ${ctx.req.user.lastName}`,
-        messageCode: "ACCOUNT_CHANGED"
+        message: `Account status changed to "${data.accountStatus}" by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+        messageCode: 'ACCOUNT_CHANGED',
       });
     }
 
     if (currentUser.accountType !== data.accountType) {
       logs.push({
-        message: `Account type changed to "${data.accountType}" by ${
-          ctx.req.user.firstName
-        } ${ctx.req.user.lastName}`,
-        messageCode: "ACCOUNT_CHANGED"
+        message: `Account type changed to "${data.accountType}" by ${ctx.req.user.firstName} ${ctx.req.user.lastName}`,
+        messageCode: 'ACCOUNT_CHANGED',
       });
     }
 
-    const messageLogs = logs.map(log => ({
+    const messageLogs = logs.map((log) => ({
       ...log,
-      ...defaultLog
+      ...defaultLog,
     }));
 
     // Update user
@@ -1580,25 +1544,25 @@ const Mutations = {
           ...(messageLogs.length > 0
             ? {
                 membershipLog: {
-                  create: messageLogs
-                }
+                  create: messageLogs,
+                },
               }
-            : {})
+            : {}),
         },
-        where: { id: args.id }
+        where: { id: args.id },
       },
-      info
+      info,
     );
 
     if (false) {
-      return { message: "Unable to update user profile settings" };
+      return { message: 'Unable to update user profile settings' };
     }
-    return { message: "User profile settings updated" };
+    return { message: 'User profile settings updated' };
   },
   async updateAvatar(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     const { data } = args;
@@ -1608,20 +1572,20 @@ const Mutations = {
       // Delete old image via Cloudinary API
       const formData = {
         api_key: process.env.CLOUDINARY_KEY,
-        public_id: oldAvatar.publicId
+        public_id: oldAvatar.publicId,
       };
 
       try {
         await fetch(
-          "https://api.cloudinary.com/v1_1/fourplayers/image/destroy",
+          'https://api.cloudinary.com/v1_1/fourplayers/image/destroy',
           {
-            method: "POST",
-            body: formData
-          }
+            method: 'POST',
+            body: formData,
+          },
         );
       } catch (e) {
         console.error(e);
-        throw new Error("Unable to remove old avatar");
+        throw new Error('Unable to remove old avatar');
       }
     }
 
@@ -1633,17 +1597,17 @@ const Mutations = {
             create: {
               publicId: newAvatar.publicId,
               url: newAvatar.url,
-              smallUrl: newAvatar.smallUrl
+              smallUrl: newAvatar.smallUrl,
             },
             update: {
               publicId: newAvatar.publicId,
               url: newAvatar.url,
-              smallUrl: newAvatar.smallUrl
-            }
-          }
-        }
+              smallUrl: newAvatar.smallUrl,
+            },
+          },
+        },
       },
-      where: { id: ctx.req.userId }
+      where: { id: ctx.req.userId },
     };
 
     const results = await ctx.db.mutation.updateUser(obj, info);
@@ -1652,26 +1616,26 @@ const Mutations = {
       data: {
         time: new Date(),
         message: `Added a new profile photo`,
-        messageCode: "PROFILE_PHOTO_SUBMITTED",
+        messageCode: 'PROFILE_PHOTO_SUBMITTED',
         link: `/profile/${ctx.req.user.username}`,
         user: {
           connect: {
-            id: ctx.req.userId
-          }
-        }
-      }
+            id: ctx.req.userId,
+          },
+        },
+      },
     });
 
     // TODO error handling
     if (false) {
-      return { message: "Unable to update avatar" };
+      return { message: 'Unable to update avatar' };
     }
-    return { message: "Avatar updated" };
+    return { message: 'Avatar updated' };
   },
   async deleteAvatar(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     const { avatar } = args;
@@ -1680,35 +1644,35 @@ const Mutations = {
     try {
       const cloudinaryResults = await promisifiedDestroy(avatar.publicId);
 
-      if (cloudinaryResults && cloudinaryResults.result !== "ok") {
+      if (cloudinaryResults && cloudinaryResults.result !== 'ok') {
         throw new Error(cloudinaryResults);
       }
     } catch (e) {
       console.error(e);
-      throw new Error("Unable to delete old avatar");
+      throw new Error('Unable to delete old avatar');
     }
 
     // Remove from user
     const obj = {
       data: {
         avatar: {
-          delete: true
-        }
+          delete: true,
+        },
       },
-      where: { id: ctx.req.userId }
+      where: { id: ctx.req.userId },
     };
 
     const results = await ctx.db.mutation.updateUser(obj, info);
 
     if (false) {
-      return { message: "Unable to delete avatar" };
+      return { message: 'Unable to delete avatar' };
     }
-    return { message: "Avatar deleted" };
+    return { message: 'Avatar deleted' };
   },
   async updateRig(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     const { data } = args;
@@ -1719,12 +1683,12 @@ const Mutations = {
       try {
         const cloudinaryResults = await promisifiedDestroy(old.publicId);
 
-        if (cloudinaryResults.result !== "ok") {
-          throw new Error("Unable to delete old rig image", cloudinaryResults);
+        if (cloudinaryResults.result !== 'ok') {
+          throw new Error('Unable to delete old rig image', cloudinaryResults);
         }
       } catch (e) {
         console.error(e);
-        throw new Error("Unable to delete old rig image");
+        throw new Error('Unable to delete old rig image');
       }
     }
 
@@ -1738,9 +1702,9 @@ const Mutations = {
                 create: {
                   publicId: newRig.publicId,
                   url: newRig.url,
-                  smallUrl: newRig.smallUrl
-                }
-              }
+                  smallUrl: newRig.smallUrl,
+                },
+              },
             },
             update: {
               image: {
@@ -1748,20 +1712,20 @@ const Mutations = {
                   create: {
                     publicId: newRig.publicId,
                     url: newRig.url,
-                    smallUrl: newRig.smallUrl
+                    smallUrl: newRig.smallUrl,
                   },
                   update: {
                     publicId: newRig.publicId,
                     url: newRig.url,
-                    smallUrl: newRig.smallUrl
-                  }
-                }
-              }
-            }
-          }
-        }
+                    smallUrl: newRig.smallUrl,
+                  },
+                },
+              },
+            },
+          },
+        },
       },
-      where: { id: ctx.req.userId }
+      where: { id: ctx.req.userId },
     };
 
     const results = await ctx.db.mutation.updateUser(obj, info);
@@ -1770,26 +1734,26 @@ const Mutations = {
       data: {
         time: new Date(),
         message: `Added a new rigbook photo`,
-        messageCode: "RIGBOOK_PHOTO_SUBMITTED",
+        messageCode: 'RIGBOOK_PHOTO_SUBMITTED',
         link: `/profile/${ctx.req.user.username}`,
         user: {
           connect: {
-            id: ctx.req.userId
-          }
-        }
-      }
+            id: ctx.req.userId,
+          },
+        },
+      },
     });
 
     // TODO error handling
     if (false) {
-      return { message: "Unable to update rig image" };
+      return { message: 'Unable to update rig image' };
     }
-    return { message: "Rig image updated" };
+    return { message: 'Rig image updated' };
   },
   async deleteRig(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     const { rig } = args;
@@ -1798,35 +1762,35 @@ const Mutations = {
     try {
       const cloudinaryResults = await promisifiedDestroy(rig.publicId);
 
-      if (cloudinaryResults && cloudinaryResults.result !== "ok") {
+      if (cloudinaryResults && cloudinaryResults.result !== 'ok') {
         throw new Error(cloudinaryResults);
       }
     } catch (e) {
       console.error(e);
-      throw new Error("Unable to delete old rig image");
+      throw new Error('Unable to delete old rig image');
     }
 
     // Remove from user
     const obj = {
       data: {
         rig: {
-          delete: true
-        }
+          delete: true,
+        },
       },
-      where: { id: ctx.req.userId }
+      where: { id: ctx.req.userId },
     };
 
     const results = await ctx.db.mutation.updateUser(obj, info);
 
     if (false) {
-      return { message: "Unable to update rig image" };
+      return { message: 'Unable to update rig image' };
     }
-    return { message: "Rig image deleted" };
+    return { message: 'Rig image deleted' };
   },
   async updateVehicle(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Requesting user has proper account status?
@@ -1841,51 +1805,51 @@ const Mutations = {
           create: {
             outfitLevel: outfitLevel && outfitLevel != 0 ? outfitLevel : null,
             mods: {
-              set: mods || []
+              set: mods || [],
             },
-            ...restVehicle
+            ...restVehicle,
           },
           update: {
             outfitLevel: outfitLevel && outfitLevel != 0 ? outfitLevel : null,
             mods: {
-              set: mods || []
+              set: mods || [],
             },
-            ...restVehicle
-          }
-        }
-      }
+            ...restVehicle,
+          },
+        },
+      },
     };
 
     const results = await ctx.db.mutation.updateUser(
       {
         data,
         where: {
-          id: ctx.req.userId
-        }
+          id: ctx.req.userId,
+        },
       },
-      info
+      info,
     );
 
-    return { message: "Your vehicle has been updated" };
+    return { message: 'Your vehicle has been updated' };
   },
   async submitElection(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Have proper roles to do this?
-    hasRole(ctx.req.user, ["ADMIN", "OFFICER"]);
+    hasRole(ctx.req.user, ['ADMIN', 'OFFICER']);
 
     // Requesting user has proper account status?
-    hasAccountStatus(ctx.req.user, ["ACTIVE"]);
+    hasAccountStatus(ctx.req.user, ['ACTIVE']);
 
     const { election } = args;
 
     // Format races
-    const races = election.races.map(race => {
+    const races = election.races.map((race) => {
       race.candidates = {
-        connect: race.candidates
+        connect: race.candidates,
       };
       return race;
     });
@@ -1897,23 +1861,23 @@ const Mutations = {
           electionName: election.electionName,
           startTime: election.startTime,
           endTime: election.endTime, // 1 week default
-          races: { create: races }
-        }
+          races: { create: races },
+        },
       },
-      info
+      info,
     );
   },
   async submitVote(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Requesting user has proper account type?
-    hasAccountType(ctx.req.user, ["FULL"]);
+    hasAccountType(ctx.req.user, ['FULL']);
 
     // Requesting user has proper account status?
-    hasAccountStatus(ctx.req.user, ["ACTIVE"]);
+    hasAccountStatus(ctx.req.user, ['ACTIVE']);
 
     // Have they voted for this ballot before?
     const { vote } = args;
@@ -1922,53 +1886,53 @@ const Mutations = {
         where: {
           AND: [
             { ballot: { id: vote.ballot } },
-            { voter: { id: ctx.req.userId } }
-          ]
-        }
+            { voter: { id: ctx.req.userId } },
+          ],
+        },
       },
-      info
+      info,
     );
 
     if (votes.length > 0) {
-      throw new Error("User has voted already");
+      throw new Error('User has voted already');
     }
 
     const data = {
       dateTime: new Date(vote.dateTime),
       ballot: {
         connect: {
-          id: vote.ballot
-        }
+          id: vote.ballot,
+        },
       },
       voter: {
         connect: {
-          id: ctx.req.userId
-        }
-      }
+          id: ctx.req.userId,
+        },
+      },
     };
 
     if (vote.candidate) {
       data.candidate = {
-        connect: { id: vote.candidate }
+        connect: { id: vote.candidate },
       };
     }
 
     // Record vote
     await ctx.db.mutation.createVote({ data });
 
-    return { message: "Thank you for voting" };
+    return { message: 'Thank you for voting' };
   },
   async createTrail(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Have proper roles to do this?
-    hasRole(ctx.req.user, ["ADMIN", "OFFICER", "RUN_MASTER"]);
+    hasRole(ctx.req.user, ['ADMIN', 'OFFICER', 'RUN_MASTER']);
 
     // Requesting user has proper account status?
-    hasAccountStatus(ctx.req.user, ["ACTIVE"]);
+    hasAccountStatus(ctx.req.user, ['ACTIVE']);
 
     const { trail } = args;
     const { featuredImage, newFeaturedImage, ...filteredTrail } = trail;
@@ -1979,26 +1943,26 @@ const Mutations = {
       // New featured image submitted
       data.featuredImage = {
         create: {
-          ...newFeaturedImage
-        }
+          ...newFeaturedImage,
+        },
       };
     }
 
     const results = await ctx.db.mutation.createTrail({ data }, info);
 
-    return { message: "Your trail has been created" };
+    return { message: 'Your trail has been created' };
   },
   async updateTrail(parent, args, ctx, info) {
     // Logged in?
     if (!ctx.req.userId) {
-      throw new Error("User must be logged in");
+      throw new Error('User must be logged in');
     }
 
     // Have proper roles to do this?
-    hasRole(ctx.req.user, ["ADMIN", "OFFICER", "RUN_MASTER"]);
+    hasRole(ctx.req.user, ['ADMIN', 'OFFICER', 'RUN_MASTER']);
 
     // Requesting user has proper account status?
-    hasAccountStatus(ctx.req.user, ["ACTIVE"]);
+    hasAccountStatus(ctx.req.user, ['ACTIVE']);
 
     const { trail, id: trailId } = args;
     const { newFeaturedImage, featuredImage, ...filteredTrail } = trail;
@@ -2007,10 +1971,10 @@ const Mutations = {
     const existingTrail = await ctx.db.query.trail(
       {
         where: {
-          id: trailId
-        }
+          id: trailId,
+        },
       },
-      info
+      info,
     );
 
     let data = { ...filteredTrail };
@@ -2020,12 +1984,12 @@ const Mutations = {
       data.featuredImage = {
         upsert: {
           create: {
-            ...newFeaturedImage
+            ...newFeaturedImage,
           },
           update: {
-            ...newFeaturedImage
-          }
-        }
+            ...newFeaturedImage,
+          },
+        },
       };
     } else if (
       existingTrail.featuredImage &&
@@ -2034,7 +1998,7 @@ const Mutations = {
     ) {
       // Remove old featured image
       data.featuredImage = {
-        delete: true
+        delete: true,
       };
     }
 
@@ -2042,14 +2006,14 @@ const Mutations = {
       {
         data,
         where: {
-          id: trailId
-        }
+          id: trailId,
+        },
       },
-      info
+      info,
     );
 
-    return { message: "Your trail has been updated" };
-  }
+    return { message: 'Your trail has been updated' };
+  },
 };
 
 module.exports = Mutations;
