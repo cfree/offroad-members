@@ -6,7 +6,7 @@ import * as nodemailer from 'nodemailer';
 
 interface EmailData {
   to: String;
-  from: String;
+  from?: String;
   subject: String;
   text: String;
   html: String;

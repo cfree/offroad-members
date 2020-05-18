@@ -9,6 +9,7 @@
     "build": "run-p build:**",
     "build:app": "react-scripts build",
     "build:lambda": "netlify-lambda build src/lambda --config webpack.functions.js",
+    "dev": "nodemon --watch 'src/lambda/**/*.ts' --exec ts-node src/lambda/bundle/index.ts",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "lint": "eslint --ext .js,.jsx,.ts,.tsx src --color",
@@ -76,6 +77,7 @@
     "rebass": "^2.3.4",
     "serverless-http": "^2.4.1",
     "stripe": "^8.52.0",
+    "ts-node": "^8.10.1",
     "typeface-josefin-sans": "0.0.75",
     "typeface-merriweather": "0.0.72",
     "typeface-open-sans": "0.0.75",
@@ -87,6 +89,7 @@
     "yup": "^0.28.3"
   },
   "devDependencies": {
+    "@babel/node": "^7.8.7",
     "@babel/plugin-proposal-class-properties": "^7.8.3",
     "@babel/plugin-proposal-object-rest-spread": "^7.9.6",
     "@babel/plugin-transform-object-assign": "^7.0.0",
