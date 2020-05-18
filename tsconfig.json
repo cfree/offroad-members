@@ -1,9 +1,8 @@
 {
   "compilerOptions": {
     "target": "es5",
-    "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
-    "skipLibCheck": true,
+    "skipLibCheck": false,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "strict": true,
@@ -13,7 +12,9 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react"
+    "lib": ["es6", "dom"],
+    "jsx": "preserve"
   },
-  "include": ["src", "functions/generated", "webpack.functions.js"]
+  "exclude": ["src/setupProxy.js", "src/lambda"],
+  "include": ["src"]
 }
