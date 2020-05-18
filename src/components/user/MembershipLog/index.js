@@ -45,7 +45,7 @@ const MembershipLog = ({ member }) => {
                           <Calendar date={entry.time} />
                           {entry.message}
 
-                          {entry.link && <Link to={entry.link}>></Link>}
+                          {entry.link && <Link to={entry.link}>&gt;</Link>}
                           {/* {isAdmin && (
                             <button onClick={removeLogEntry()}>Delete</button>
                           )} */}

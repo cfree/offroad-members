@@ -8,8 +8,8 @@ const GaragePage = () => {
       <p>
         Vehicle Information:
         <br />
-        {/* {/* {user.vehicle.year} {user.vehicle.make}{' '} */} */}
-        {/* {/* {user.vehicle.model} {user.vehicle.trim} */} */}
+        {/* {/* {user.vehicle.year} {user.vehicle.make}{' '} */}
+        {/* {/* {user.vehicle.model} {user.vehicle.trim} */}
         <br />
         {/* {user.vehicle.name} */}
         <br />

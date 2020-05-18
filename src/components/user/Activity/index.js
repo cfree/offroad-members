@@ -105,7 +105,7 @@ const Activity = ({ username, isSelf }) => {
                         <Calendar date={entry.time} />
                         {entry.message}
 
-                        {entry.link && <Link to={entry.link}>></Link>}
+                        {entry.link && <Link to={entry.link}>&gt;</Link>}
                       </li>
                     ))}
                 </ul>
