@@ -1,3 +1,11 @@
+# Monorepo, no?
+
+Deploy process:
+
+1. Push up branch to master
+2. Run `npm run build`
+3.
+
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
 ## Available Scripts
