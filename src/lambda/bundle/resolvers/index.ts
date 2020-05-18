@@ -3,7 +3,7 @@ import Ballot from './Ballot';
 import Election from './Election';
 import Query from './Query';
 import Trail from './Trail';
-import Custom from './Custom';
+// import Custom from './Custom';
 
 const resolvers: any = {
   Mutation,
@@ -11,7 +11,7 @@ const resolvers: any = {
   Ballot,
   Query,
   Trail,
-  Custom,
+  // Custom,
 };
 
 export default resolvers;

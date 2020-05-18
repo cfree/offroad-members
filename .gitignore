@@ -10,7 +10,7 @@
 
 # production
 /build
-/built-lambda
+/lambda
 /.netlify
 /functions
 
