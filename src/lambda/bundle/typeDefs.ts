@@ -1,10 +1,9 @@
 import { gql } from 'apollo-server-express';
+// # import * from './generated/prisma.graphql'
 
-export const typeDefs = /* graphql */ gql`
-  # Scalars
+const typeDefs = gql`
   scalar DateTime
 
-  # Enums
   enum Role {
     ADMIN
     OFFICER
@@ -125,18 +124,73 @@ export const typeDefs = /* graphql */ gql`
     SOCIAL
   }
 
-  enum Tshirt {
-    XS
-    S
-    M
-    L
-    XL
-    XXL
-    XXXL
-    XXXXL
+  type Election {
+    id: ID!
+    electionName: String!
+    startTime: DateTime
+    endTime: DateTime
+    races: [Ballot]
   }
 
-  # Types
+  type Vote {
+    id: ID!
+    ballot: Ballot!
+    candidate: User
+    voter: User!
+  }
+
+  type Vehicle {
+    id: ID!
+    year: Int!
+    make: String!
+    model: String!
+    name: String
+    trim: String
+    image: CloudinaryImage
+    outfitLevel: OutfitLevel
+    mods: [String]
+  }
+
+  type RigImage {
+    id: ID!
+    image: CloudinaryImage
+  }
+
+  type Preference {
+    id: ID!
+    user: User
+    emergencyContactName: String
+    emergencyContactPhone: String
+    photoPermissions: Boolean
+    showPhoneNumber: Boolean
+  }
+
+  type UserMeta {
+    id: ID!
+    user: User
+    emailVerified: Boolean
+    firstLoginComplete: Boolean
+    accountSetupComplete: Boolean
+    oldSitemigrationComplete: Boolean
+  }
+
+  type ContactInfo {
+    id: ID!
+    user: User
+    street: String
+    city: String
+    state: String
+    zip: String
+    phone: String!
+  }
+
+  type Condition {
+    id: ID!
+    report: RunReport!
+    status: TrailCondition!
+    notes: String
+  }
+
   type SuccessMessage {
     message: String
   }
@@ -272,29 +326,20 @@ export const typeDefs = /* graphql */ gql`
     gender: Gender
     birthdate: DateTime
     username: String
-    street: String
-    city: String
-    state: String
-    zip: String
-    phone: String!
-    emergencyContactName: String
-    emergencyContactPhone: String
-    photoPermissions: Boolean
-    showPhoneNumber: Boolean
-    firstLoginComplete: Boolean
-    accountSetupComplete: Boolean
-    oldSitemigrationComplete: Boolean
+    preferences: Preference
+    userMeta: UserMeta
+    contactInfo: ContactInfo
     avatar: CloudinaryImage
     isCharterMember: Boolean!
-    titles: [Title]
+    title: Title
     role: Role!
     accountStatus: AccountStatus
     accountType: AccountType
     office: Office
+    rig: RigImage
     # vehicles: [Vehicle]
     vehicle: Vehicle
     comfortLevel: String
-    tshirtSize: Tshirt
     activityLog: [ActivityLogItem]
     membershipLog: [MembershipLogItem]
     eventsRSVPd: [RSVP]
@@ -381,7 +426,7 @@ export const typeDefs = /* graphql */ gql`
     weather: String
     difficulty: TrailDifficulty
     rating: Float
-    conditions: TrailCondition
+    conditions: Condition
     conditionsNotes: String
     favorite: Boolean
   }
@@ -395,138 +440,6 @@ export const typeDefs = /* graphql */ gql`
     description: String
   }
 
-  type Result {
-    candidate: User
-    count: Int!
-  }
-
-  type CloudinaryImage {
-    id: ID!
-    # createdAt: DateTime!
-    # updatedAt: DateTime!
-    publicId: String!
-    url: String
-    smallUrl: String
-  }
-
-  type AdminStats {
-    activeFullMembers: Int
-    pastDueFullMembers: Int
-    delinquentFullMembers: Int
-    removedFullMembers: Int
-    resignedFullMembers: Int
-    inactiveFullMembers: Int
-    limitedGuestMembers: Int
-    lockedGuestMembers: Int
-
-    emeritusMembers: Int
-    deceasedMembers: Int
-    associateMembers: Int
-    guestMembers: Int
-    charterMembers: Int
-
-    fullMembersLastYear: Int
-    newFullMembersThisYear: Int
-    neededForQuorum: Int
-    neededToPassMotion: Int
-    neededToVoteOnNewMember: Int
-    newFullMembersAllowed: Int
-    fullMembersAllowed: Int
-  }
-
-  type MemberCount {
-    year: Int
-    count: Int
-  }
-
-  type Election {
-    id: ID!
-    createdAt: DateTime!
-    updatedAt: DateTime!
-    electionName: String!
-    startTime: DateTime
-    endTime: DateTime
-    races: [Ballot]
-  }
-
-  type Ballot {
-    id: ID!
-    createdAt: DateTime!
-    updatedAt: DateTime!
-    title: String!
-    description: String
-    candidates: [User]
-    votes: [Vote]
-    results: [Result]
-  }
-
-  type Vote {
-    id: ID!
-    createdAt: DateTime!
-    updatedAt: DateTime!
-    ballot: Ballot!
-    candidate: User
-    voter: User!
-  }
-
-  # type Preference {
-  #   id: ID!
-  #   createdAt: DateTime
-  #   updatedAt: DateTime!
-  #   user: User
-  #   emergencyContactName: String
-  #   emergencyContactPhone: String
-  #   photoPermissions: Boolean
-  #   showPhoneNumber: Boolean
-  # }
-
-  # type UserMeta {
-  #   id: ID!
-  #   createdAt: DateTime
-  #   updatedAt: DateTime!
-  #   user: User
-  #   emailVerified: Boolean
-  #   firstLoginComplete: Boolean
-  #   accountSetupComplete: Boolean
-  #   oldSitemigrationComplete: Boolean
-  # }
-
-  type Vehicle {
-    id: ID!
-    createdAt: DateTime!
-    updatedAt: DateTime!
-    year: Int!
-    make: String!
-    model: String!
-    name: String
-    trim: String
-    image: CloudinaryImage
-    outfitLevel: OutfitLevel
-    mods: [String]
-  }
-
-  # type Condition {
-  #   id: ID!
-  #   createdAt: DateTime!
-  #   updatedAt: DateTime!
-  #   report: RunReport!
-  #   status: TrailCondition!
-  #   notes: String
-  # }
-
-  # type ContactInfo {
-  #   id: ID!
-  #   createdAt: DateTime
-  #   updatedAt: DateTime!
-  #   user: User
-  #   street: String
-  #   city: String
-  #   state: String
-  #   zip: String
-  #   phone: String!
-  # }
-
-  # Form Inputs
   input RSVPInput {
     userId: ID
     eventId: ID
@@ -592,7 +505,7 @@ export const typeDefs = /* graphql */ gql`
     title: String!
     desc: String
     candidates: [UserInput!]!
-    # votes: [Vote]
+    # votes: [Vote] @relation(name: "BallotVote")
   }
 
   input UserInput {
@@ -605,12 +518,33 @@ export const typeDefs = /* graphql */ gql`
     candidate: ID
   }
 
+  type Result {
+    candidate: User
+    count: Int!
+  }
+
+  type Ballot {
+    id: ID!
+    title: String!
+    desc: String
+    candidates: [User!]!
+    votes: [Vote]
+    results: [Result]
+  }
+
   input ImageUpdateInput {
     old: CloudinaryImageInput
     new: CloudinaryImageInput!
   }
 
   input CloudinaryImageInput {
+    id: ID
+    publicId: String!
+    url: String!
+    smallUrl: String
+  }
+
+  type CloudinaryImage {
     id: ID
     publicId: String!
     url: String!
@@ -636,4 +570,36 @@ export const typeDefs = /* graphql */ gql`
     outfitLevel: OutfitLevel
     mods: [String]
   }
+
+  type AdminStats {
+    activeFullMembers: Int
+    pastDueFullMembers: Int
+    delinquentFullMembers: Int
+    removedFullMembers: Int
+    resignedFullMembers: Int
+    inactiveFullMembers: Int
+    limitedGuestMembers: Int
+    lockedGuestMembers: Int
+
+    emeritusMembers: Int
+    deceasedMembers: Int
+    associateMembers: Int
+    guestMembers: Int
+    charterMembers: Int
+
+    fullMembersLastYear: Int
+    newFullMembersThisYear: Int
+    neededForQuorum: Int
+    neededToPassMotion: Int
+    neededToVoteOnNewMember: Int
+    newFullMembersAllowed: Int
+    fullMembersAllowed: Int
+  }
+
+  type MemberCount {
+    year: Int
+    count: Int
+  }
 `;
+
+export default typeDefs;

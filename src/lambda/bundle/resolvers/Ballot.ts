@@ -1,14 +1,14 @@
 const Ballot = {
   // Pattern borrowed from playbook:
   // https://www.prisma.io/tutorials/a-guide-to-common-resolver-patterns-ct08/#scenario:-add-a-custom/computed-field-to-a-prisma-model-via-the-application-schema-prisma-bindings
-  async results({ id }, args, ctx, info) {
+  async results({ id }: any, args: any, ctx: any, info: any) {
     const votes = await ctx.db.query.votes({ where: { ballot: { id } } }, info);
 
-    const results = votes.reduce((accumulator, vote) => {
+    const results: any = votes.reduce((accumulator: any, vote: any) => {
       let entryExists = false;
 
       // Does this entry exist in accumulator yet?
-      const existingResults = accumulator.map((entry) => {
+      const existingResults = accumulator.map((entry: any) => {
         if (
           (vote.candidate === null && entry.candidate === null) ||
           (vote.candidate !== null &&
@@ -32,7 +32,7 @@ const Ballot = {
           ];
     }, []);
 
-    return results.sort((a, b) => {
+    return results.sort((a: any, b: any) => {
       if (a.count < b.count) {
         return 1;
       }
@@ -41,7 +41,7 @@ const Ballot = {
       }
       return 0;
     });
-    return results;
+    // return results;
   },
 };
 

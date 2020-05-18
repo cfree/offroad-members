@@ -4,7 +4,7 @@ import { subDays } from 'date-fns';
 const Trail = {
   // Pattern borrowed from playbook:
   // https://www.prisma.io/tutorials/a-guide-to-common-resolver-patterns-ct08/#scenario:-add-a-custom/computed-field-to-a-prisma-model-via-the-application-schema-prisma-bindings
-  async avgDifficulty(parent, args, ctx, info) {
+  async avgDifficulty(parent: any, args: any, ctx: any, info: any) {
     // Get all difficulties from run reports for this trail
     const reports = await ctx.db.query.runReports({
       where: {
@@ -13,7 +13,7 @@ const Trail = {
     });
 
     // Convert to array
-    const scale = {
+    const scale: any = {
       UNKNOWN: 0,
       BEGINNER: 1,
       INTERMEDIATE: 2,
@@ -22,7 +22,7 @@ const Trail = {
 
     // Determine total
     const counts = reports.reduce(
-      (accumulator, report) => scale[report.difficulty] + accumulator,
+      (accumulator: any, report: any) => scale[report.difficulty] + accumulator,
       0,
     );
 
@@ -30,14 +30,14 @@ const Trail = {
       const avg = Math.round(counts / reports.length);
       const entries = Object.entries(scale);
       // console.log("entries", entries);
-      const avgDifficulty = entries.find((entry) => avg === entry[1]);
+      const avgDifficulty: any = entries.find((entry) => avg === entry[1]);
 
       return avgDifficulty[0];
     }
 
     return 'UNKNOWN';
   },
-  async avgRatings(parent, args, ctx, info) {
+  async avgRatings(parent: any, args: any, ctx: any, info: any) {
     // Get all ratings from run reports and checkins for this trail, determine average
     // Get all difficulties from run reports for this trail
     const reports = await ctx.db.query.runReports({
@@ -48,7 +48,7 @@ const Trail = {
 
     // Determine total
     const counts = reports.reduce(
-      (accumulator, report) => report.rating + accumulator,
+      (accumulator: any, report: any) => report.rating + accumulator,
       0,
     );
 
@@ -59,7 +59,7 @@ const Trail = {
 
     return 0;
   },
-  async currentConditions({ id }, args, ctx, info) {
+  async currentConditions({ id }: any, args: any, ctx: any, info: any) {
     // Find last condition reported within the last 30 days
     const conditions = await ctx.db.query.conditions({
       where: {
@@ -79,7 +79,7 @@ const Trail = {
 
     return 'UNKNOWN';
   },
-  async conditionsLastReported({ id }, args, ctx, info) {
+  async conditionsLastReported({ id }: any, args: any, ctx: any, info: any) {
     // Get count of all people who favorited this trail
     // Find last condition reported within the last 30 days
     const conditions = await ctx.db.query.conditions({
@@ -100,7 +100,7 @@ const Trail = {
 
     return null;
   },
-  async favoriteCount({ id }, args, ctx, info) {
+  async favoriteCount({ id }: any, args: any, ctx: any, info: any) {
     // Get count of all people who favorited this trail
     const reports = await ctx.db.query.runReports({
       where: {

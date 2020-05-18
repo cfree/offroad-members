@@ -1,23 +1,16 @@
-import { ApolloServer } from 'apollo-server-express';
-import { PrismaClient } from '@prisma/client';
+import { ApolloServer, makeExecutableSchema } from 'apollo-server-express';
 
-import { schema } from './schema';
+import typeDefs from './typeDefs';
+import resolvers from './resolvers';
+import { prisma } from './generated';
 
-const db = new PrismaClient();
-
-// const schema = makeExecutableSchema({
-//   typeDefs,
-//   resolvers: {
-//     Mutation,
-//     Query,
-//     Trail,
-//     Election,
-//     Ballot,
-//   },
-//   resolverValidationOptions: { requireResolversForResolveType: false },
-// });
+const schema = makeExecutableSchema({
+  typeDefs,
+  resolvers,
+  resolverValidationOptions: { requireResolversForResolveType: false },
+});
 
 export default new ApolloServer({
   schema,
-  context: (req) => ({ ...req, db }),
+  context: (req) => ({ ...req, db: prisma }),
 });
